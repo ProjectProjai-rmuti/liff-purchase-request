@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>ใบขอซื้อ - ทดสอบ LIFF</title>
+<script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<style>
+  :root{
+    --teal:#0f7a6e;
+    --navy:#1b2740;
+    --grey:#6b7480;
+    --card:#f4f6f9;
+  }
+  *{box-sizing:border-box;}
+  body{
+    font-family: -apple-system, "Segoe UI", "Noto Sans Thai", sans-serif;
+    background:#fff;
+    margin:0;
+    padding:24px 20px 60px;
+    color:var(--navy);
+  }
+  h1{ font-size:20px; margin-bottom:4px; }
+  .sub{ color:var(--grey); font-size:13px; margin-bottom:24px; }
+
+  #status{
+    background:var(--card);
+    border-radius:10px;
+    padding:14px 16px;
+    font-size:13px;
+    margin-bottom:20px;
+    line-height:1.6;
+  }
+  #status.ok{ background:#e4f5f1; color:var(--teal); font-weight:600; }
+  #status.err{ background:#fbe9e7; color:#c0392b; font-weight:600; }
+
+  .field{ margin-bottom:16px; }
+  label{ display:block; font-size:13px; font-weight:600; margin-bottom:6px; }
+  input, select, textarea{
+    width:100%;
+    padding:10px 12px;
+    border:1px solid #d9dee6;
+    border-radius:8px;
+    font-size:14px;
+    font-family:inherit;
+  }
+
+  button{
+    width:100%;
+    padding:14px;
+    background:var(--teal);
+    color:#fff;
+    border:none;
+    border-radius:10px;
+    font-size:15px;
+    font-weight:600;
+    margin-top:8px;
+  }
+  button:disabled{ background:#ccc; }
+
+  #result{
+    margin-top:16px;
+    font-size:13px;
+    color:var(--grey);
+    white-space:pre-wrap;
+    word-break:break-all;
+  }
+</style>
+</head>
+<body>
+
+  <h1>แบบฟอร์มขอซื้อ (ทดสอบ)</h1>
+  <div class="sub">หน้าทดสอบเชื่อมต่อ LIFF ↔ n8n — โครงงานระบบอนุมัติเอกสารโลจิสติกส์</div>
+
+  <div id="status">กำลังเชื่อมต่อ LIFF...</div>
+
+  <div class="field">
+    <label>สินค้า/รายการที่ขอซื้อ</label>
+    <input type="text" id="item" placeholder="เช่น กระดาษ A4 5 รีม">
+  </div>
+
+  <div class="field">
+    <label>จำนวนเงิน (บาท)</label>
+    <input type="number" id="amount" placeholder="เช่น 1500">
+  </div>
+
+  <div class="field">
+    <label>เหตุผล</label>
+    <textarea id="reason" rows="3" placeholder="เช่น ของในคลังใกล้หมด"></textarea>
+  </div>
+
+  <button id="submitBtn" disabled>ส่งคำขอ (ยังไม่ต่อ n8n)</button>
+
+  <div id="result"></div>
+
+<script>
+  // ===== แก้ 2 ค่านี้เมื่อพร้อมใช้งานจริง =====
+  const LIFF_ID = "2010845955-6nOV07FQ";       // LIFF ID ของคุณ (ใส่ไว้ให้แล้ว)
+  const WEBHOOK_URL = "https://n8n-exsb.onrender.com/webhook-test/pr-request"; // n8n Webhook (Test URL)
+  // ==========================================
+
+  const statusEl = document.getElementById("status");
+  const btn = document.getElementById("submitBtn");
+  const resultEl = document.getElementById("result");
+  let userProfile = null;
+
+  async function initLiff() {
+    try {
+      await liff.init({ liffId: LIFF_ID });
+
+      if (!liff.isLoggedIn()) {
+        liff.login();
+        return;
+      }
+
+      userProfile = await liff.getProfile();
+      statusEl.className = "ok";
+      statusEl.textContent = "เชื่อมต่อ LIFF สำเร็จ ✓  สวัสดี " + userProfile.displayName;
+
+      if (WEBHOOK_URL) {
+        btn.disabled = false;
+        btn.textContent = "ส่งคำขอ";
+      } else {
+        btn.textContent = "ยังไม่ได้ตั้งค่า n8n Webhook";
+      }
+    } catch (err) {
+      statusEl.className = "err";
+      statusEl.textContent = "เชื่อมต่อ LIFF ไม่สำเร็จ: " + err.message +
+        "\n\nถ้าเปิดจากเบราว์เซอร์ธรรมดา (ไม่ใช่แอป LINE) จะเจอ error นี้เป็นปกติ ให้เปิดผ่านลิงก์ liff.line.me แทน";
+    }
+  }
+
+  btn.addEventListener("click", async () => {
+    const payload = {
+      item: document.getElementById("item").value,
+      amount: Number(document.getElementById("amount").value),
+      reason: document.getElementById("reason").value,
+      requester: userProfile ? userProfile.displayName : "unknown",
+      lineUserId: userProfile ? userProfile.userId : null,
+      timestamp: new Date().toISOString(),
+    };
+
+    btn.disabled = true;
+    btn.textContent = "กำลังส่ง...";
+
+    try {
+      const res = await fetch(WEBHOOK_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      resultEl.textContent = "ส่งสำเร็จ (สถานะ " + res.status + ")\n\n" + JSON.stringify(payload, null, 2);
+      btn.textContent = "ส่งคำขออีกครั้ง";
+    } catch (err) {
+      resultEl.textContent = "ส่งไม่สำเร็จ: " + err.message;
+      btn.textContent = "ลองอีกครั้ง";
+    }
+    btn.disabled = false;
+  });
+
+  initLiff();
+</script>
+</body>
+</html>

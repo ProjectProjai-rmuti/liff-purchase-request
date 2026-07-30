@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>คำขอของฉัน</title>
+<script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<style>
+  :root{
+    --teal: #0F7A6E;
+    --teal-dark: #085041;
+    --bg: #F6F7F5;
+    --card-bg: #FFFFFF;
+    --text-primary: #1F2421;
+    --text-secondary: #6B7268;
+    --border: #E4E7E2;
+
+    --status-pending-bg: #FFF4E0;
+    --status-pending-text: #9A6A00;
+    --status-progress-bg: #E4F0FB;
+    --status-progress-text: #1B5FA3;
+    --status-done-bg: #E1F5EE;
+    --status-done-text: #0F6E56;
+    --status-rejected-bg: #FBEAEA;
+    --status-rejected-text: #B3261E;
+  }
+
+  * { box-sizing: border-box; }
+
+  body{
+    margin:0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans Thai", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text-primary);
+    padding-bottom: 40px;
+  }
+
+  header{
+    background: var(--teal);
+    color: white;
+    padding: 20px;
+    text-align: center;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  header h1{
+    margin: 0;
+    font-size: 20px;
+    font-weight: 600;
+  }
+  header p{
+    margin: 4px 0 0;
+    font-size: 13px;
+    opacity: 0.9;
+  }
+
+  main{
+    max-width: 480px;
+    margin: 0 auto;
+    padding: 16px;
+  }
+
+  .state-box{
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-secondary);
+  }
+  .state-box .icon{
+    font-size: 40px;
+    margin-bottom: 12px;
+  }
+  .spinner{
+    width: 28px;
+    height: 28px;
+    border: 3px solid var(--border);
+    border-top-color: var(--teal);
+    border-radius: 50%;
+    margin: 0 auto 16px;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin{ to { transform: rotate(360deg); } }
+
+  .card{
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 12px;
+  }
+  .card-top{
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .card-item{
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 1.4;
+  }
+  .badge{
+    flex-shrink: 0;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .badge.pending{ background: var(--status-pending-bg); color: var(--status-pending-text); }
+  .badge.progress{ background: var(--status-progress-bg); color: var(--status-progress-text); }
+  .badge.done{ background: var(--status-done-bg); color: var(--status-done-text); }
+  .badge.rejected{ background: var(--status-rejected-bg); color: var(--status-rejected-text); }
+
+  .card-row{
+    display: flex;
+    justify-content: space-between;
+    font-size: 14px;
+    color: var(--text-secondary);
+    padding: 4px 0;
+  }
+  .card-row span:last-child{
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+  .card-date{
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--border);
+  }
+
+  .load-more{
+    display: block;
+    width: 100%;
+    padding: 12px;
+    margin-top: 8px;
+    background: white;
+    border: 1px solid var(--teal);
+    color: var(--teal-dark);
+    font-size: 14px;
+    font-weight: 600;
+    border-radius: 10px;
+  }
+  .load-more:active{ background: var(--status-done-bg); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📋 คำขอของฉัน</h1>
+  <p>สถานะคำขอซื้อ / เบิกของทั้งหมด</p>
+</header>
+
+<main id="main">
+  <div class="state-box" id="loading">
+    <div class="spinner"></div>
+    กำลังโหลดข้อมูลค่ะ...
+  </div>
+</main>
+
+<script>
+// ===== ตั้งค่า =====
+const LIFF_ID = "PUT_YOUR_NEW_LIFF_ID_HERE";
+const N8N_ENDPOINT = "https://n8n-exsb.onrender.com/webhook/check-status";
+
+// ===== ตัวแปรสถานะ =====
+let allRequests = [];
+
+const STATUS_MAP = {
+  "รออนุมัติ":     { cls: "pending",  label: "รออนุมัติ" },
+  "ไม่อนุมัติ":     { cls: "rejected", label: "ไม่อนุมัติ" },
+  "รอตรวจรับ":     { cls: "progress", label: "รอตรวจรับ" },
+  "ตรวจรับแล้ว":   { cls: "progress", label: "ตรวจรับแล้ว" },
+  "รอวางบิล":      { cls: "progress", label: "รอวางบิล" },
+  "เสร็จสมบูรณ์":  { cls: "done",     label: "เสร็จสมบูรณ์" }
+};
+
+function formatDate(iso){
+  const d = new Date(iso);
+  return d.toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric" }) +
+         " " + d.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" });
+}
+
+function renderCard(req){
+  const meta = STATUS_MAP[req.status] || { cls: "pending", label: req.status };
+  return `
+    <div class="card">
+      <div class="card-top">
+        <div class="card-item">${req.item}</div>
+        <div class="badge ${meta.cls}">${meta.label}</div>
+      </div>
+      <div class="card-row"><span>จำนวนเงิน</span><span>${Number(req.amount).toLocaleString()} บาท</span></div>
+      <div class="card-row"><span>เหตุผล</span><span>${req.reason}</span></div>
+      <div class="card-date">ยื่นเมื่อ ${formatDate(req.timestamp)}</div>
+    </div>
+  `;
+}
+
+function render(){
+  const main = document.getElementById("main");
+
+  if (allRequests.length === 0){
+    main.innerHTML = `
+      <div class="state-box">
+        <div class="icon">🗂️</div>
+        ยังไม่มีคำขอค่ะ<br>
+        กดปุ่ม "ยื่นคำขอใหม่" ในเมนูด้านล่างเพื่อเริ่มต้น
+      </div>`;
+    return;
+  }
+
+  main.innerHTML = allRequests.map(renderCard).join("");
+}
+
+async function init(){
+  try{
+    await liff.init({ liffId: LIFF_ID });
+
+    if (!liff.isLoggedIn()){
+      liff.login();
+      return;
+    }
+
+    const profile = await liff.getProfile();
+    const lineUserId = profile.userId;
+
+    const res = await fetch(N8N_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lineUserId })
+    });
+
+    const data = await res.json();
+
+    // เรียงล่าสุดขึ้นก่อน
+    allRequests = data.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+    render();
+
+  } catch (err){
+    document.getElementById("main").innerHTML = `
+      <div class="state-box">
+        <div class="icon">⚠️</div>
+        โหลดข้อมูลไม่สำเร็จค่ะ<br>
+        <span style="font-size:12px">${err.message || err}</span>
+      </div>`;
+  }
+}
+
+init();
+</script>
+
+</body>
+</html>

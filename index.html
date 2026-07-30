@@ -3,14 +3,17 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>ใบขอซื้อ - ทดสอบ LIFF</title>
+<title>ใบขอซื้อ - ระบบอนุมัติเอกสารโลจิสติกส์</title>
 <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 <style>
   :root{
     --teal:#0f7a6e;
+    --teal-dark:#085041;
     --navy:#1b2740;
     --grey:#6b7480;
     --card:#f4f6f9;
+    --danger:#c0392b;
+    --danger-bg:#fbe9e7;
   }
   *{box-sizing:border-box;}
   body{
@@ -32,11 +35,13 @@
     line-height:1.6;
   }
   #status.ok{ background:#e4f5f1; color:var(--teal); font-weight:600; }
-  #status.err{ background:#fbe9e7; color:#c0392b; font-weight:600; }
+  #status.err{ background:var(--danger-bg); color:var(--danger); font-weight:600; white-space:pre-wrap; }
+
+  #formArea.hidden, #successArea.hidden{ display:none; }
 
   .field{ margin-bottom:16px; }
   label{ display:block; font-size:13px; font-weight:600; margin-bottom:6px; }
-  input, select, textarea{
+  input, textarea{
     width:100%;
     padding:10px 12px;
     border:1px solid #d9dee6;
@@ -44,6 +49,17 @@
     font-size:14px;
     font-family:inherit;
   }
+  input.invalid, textarea.invalid{
+    border-color: var(--danger);
+    background: var(--danger-bg);
+  }
+  .field-error{
+    color: var(--danger);
+    font-size:12px;
+    margin-top:4px;
+    display:none;
+  }
+  .field-error.show{ display:block; }
 
   button{
     width:100%;
@@ -57,51 +73,93 @@
     margin-top:8px;
   }
   button:disabled{ background:#ccc; }
+  button:active:not(:disabled){ background:var(--teal-dark); }
 
-  #result{
-    margin-top:16px;
-    font-size:13px;
-    color:var(--grey);
-    white-space:pre-wrap;
-    word-break:break-all;
+  /* หน้าจอส่งสำเร็จ */
+  #successArea{
+    text-align:center;
+    padding:40px 10px;
   }
+  #successArea .icon{
+    font-size:52px;
+    margin-bottom:16px;
+  }
+  #successArea h2{
+    font-size:18px;
+    margin:0 0 8px;
+  }
+  #successArea p{
+    color:var(--grey);
+    font-size:13px;
+    margin:0 0 24px;
+    line-height:1.6;
+  }
+  #successArea .summary{
+    background:var(--card);
+    border-radius:10px;
+    padding:16px;
+    text-align:left;
+    font-size:13px;
+    line-height:1.9;
+    margin-bottom:24px;
+  }
+  #successArea .summary b{ color:var(--navy); }
 </style>
 </head>
 <body>
 
-  <h1>แบบฟอร์มขอซื้อ (ทดสอบ)</h1>
-  <div class="sub">หน้าทดสอบเชื่อมต่อ LIFF ↔ n8n — โครงงานระบบอนุมัติเอกสารโลจิสติกส์</div>
+  <h1>แบบฟอร์มขอซื้อ / เบิกของ</h1>
+  <div class="sub">ระบบอนุมัติเอกสารโลจิสติกส์อัตโนมัติ</div>
 
-  <div id="status">กำลังเชื่อมต่อ LIFF...</div>
+  <div id="status">กำลังเชื่อมต่อ...</div>
 
-  <div class="field">
-    <label>สินค้า/รายการที่ขอซื้อ</label>
-    <input type="text" id="item" placeholder="เช่น กระดาษ A4 5 รีม">
+  <div id="formArea" class="hidden">
+    <div class="field">
+      <label>สินค้า/รายการที่ขอซื้อ</label>
+      <input type="text" id="item" placeholder="เช่น กระดาษ A4 5 รีม">
+      <div class="field-error" id="itemError">กรุณากรอกรายการที่ต้องการขอซื้อ</div>
+    </div>
+
+    <div class="field">
+      <label>จำนวนเงิน (บาท)</label>
+      <input type="text" inputmode="decimal" id="amount" placeholder="เช่น 1500">
+      <div class="field-error" id="amountError">กรุณากรอกจำนวนเงินเป็นตัวเลขที่มากกว่า 0</div>
+    </div>
+
+    <div class="field">
+      <label>เหตุผล</label>
+      <textarea id="reason" rows="3" placeholder="เช่น ของในคลังใกล้หมด"></textarea>
+      <div class="field-error" id="reasonError">กรุณากรอกเหตุผลในการขอซื้อ</div>
+    </div>
+
+    <button id="submitBtn">ส่งคำขอ</button>
   </div>
 
-  <div class="field">
-    <label>จำนวนเงิน (บาท)</label>
-    <input type="number" id="amount" placeholder="เช่น 1500">
+  <div id="successArea" class="hidden">
+    <div class="icon">✅</div>
+    <h2>ส่งคำขอเรียบร้อยแล้วค่ะ</h2>
+    <p>ระบบจะแจ้งเตือนทุกครั้งที่คำขอมีความคืบหน้า<br>คุณสามารถปิดหน้านี้ได้เลย</p>
+    <div class="summary" id="summaryBox"></div>
+    <button id="newRequestBtn">ส่งคำขอใหม่อีกครั้ง</button>
   </div>
-
-  <div class="field">
-    <label>เหตุผล</label>
-    <textarea id="reason" rows="3" placeholder="เช่น ของในคลังใกล้หมด"></textarea>
-  </div>
-
-  <button id="submitBtn" disabled>ส่งคำขอ (ยังไม่ต่อ n8n)</button>
-
-  <div id="result"></div>
 
 <script>
-  // ===== แก้ 2 ค่านี้เมื่อพร้อมใช้งานจริง =====
-  const LIFF_ID = "2010845955-6nOV07FQ";       // LIFF ID ของคุณ (ใส่ไว้ให้แล้ว)
-  const WEBHOOK_URL = "https://n8n-exsb.onrender.com/webhook-test/pr-request"; // n8n Webhook (Test URL)
+  // ===== ตั้งค่า =====
+  const LIFF_ID = "2010845955-6nOV07FQ";
+  const WEBHOOK_URL = "https://n8n-exsb.onrender.com/webhook/pr-request"; // Production URL
   // ==========================================
 
   const statusEl = document.getElementById("status");
+  const formArea = document.getElementById("formArea");
+  const successArea = document.getElementById("successArea");
   const btn = document.getElementById("submitBtn");
-  const resultEl = document.getElementById("result");
+  const newRequestBtn = document.getElementById("newRequestBtn");
+  const summaryBox = document.getElementById("summaryBox");
+
+  const itemEl = document.getElementById("item");
+  const amountEl = document.getElementById("amount");
+  const reasonEl = document.getElementById("reason");
+
   let userProfile = null;
 
   async function initLiff() {
@@ -115,26 +173,76 @@
 
       userProfile = await liff.getProfile();
       statusEl.className = "ok";
-      statusEl.textContent = "เชื่อมต่อ LIFF สำเร็จ ✓  สวัสดี " + userProfile.displayName;
+      statusEl.textContent = "เชื่อมต่อสำเร็จ ✓  สวัสดี " + userProfile.displayName;
+      formArea.classList.remove("hidden");
 
-      if (WEBHOOK_URL) {
-        btn.disabled = false;
-        btn.textContent = "ส่งคำขอ";
-      } else {
-        btn.textContent = "ยังไม่ได้ตั้งค่า n8n Webhook";
-      }
     } catch (err) {
       statusEl.className = "err";
-      statusEl.textContent = "เชื่อมต่อ LIFF ไม่สำเร็จ: " + err.message +
+      statusEl.textContent = "เชื่อมต่อไม่สำเร็จ: " + err.message +
         "\n\nถ้าเปิดจากเบราว์เซอร์ธรรมดา (ไม่ใช่แอป LINE) จะเจอ error นี้เป็นปกติ ให้เปิดผ่านลิงก์ liff.line.me แทน";
     }
   }
 
+  // ===== ตัวช่วย validate =====
+  function clearFieldError(input, errorEl) {
+    input.classList.remove("invalid");
+    errorEl.classList.remove("show");
+  }
+  function showFieldError(input, errorEl, message) {
+    input.classList.add("invalid");
+    if (message) errorEl.textContent = message;
+    errorEl.classList.add("show");
+  }
+
+  function validateForm() {
+    let isValid = true;
+
+    const itemVal = itemEl.value.trim();
+    const amountRaw = amountEl.value.trim();
+    const reasonVal = reasonEl.value.trim();
+
+    clearFieldError(itemEl, document.getElementById("itemError"));
+    clearFieldError(amountEl, document.getElementById("amountError"));
+    clearFieldError(reasonEl, document.getElementById("reasonError"));
+
+    if (itemVal === "") {
+      showFieldError(itemEl, document.getElementById("itemError"), "กรุณากรอกรายการที่ต้องการขอซื้อ");
+      isValid = false;
+    }
+
+    const amountNum = Number(amountRaw);
+    if (amountRaw === "" || isNaN(amountNum)) {
+      showFieldError(amountEl, document.getElementById("amountError"), "กรุณากรอกจำนวนเงินเป็นตัวเลข");
+      isValid = false;
+    } else if (amountNum <= 0) {
+      showFieldError(amountEl, document.getElementById("amountError"), "จำนวนเงินต้องมากกว่า 0");
+      isValid = false;
+    } else if (!Number.isFinite(amountNum)) {
+      showFieldError(amountEl, document.getElementById("amountError"), "จำนวนเงินไม่ถูกต้อง");
+      isValid = false;
+    }
+
+    if (reasonVal === "") {
+      showFieldError(reasonEl, document.getElementById("reasonError"), "กรุณากรอกเหตุผลในการขอซื้อ");
+      isValid = false;
+    }
+
+    return { isValid, itemVal, amountNum, reasonVal };
+  }
+
+  // ล้าง error ทันทีที่ผู้ใช้เริ่มพิมพ์แก้ไข
+  itemEl.addEventListener("input", () => clearFieldError(itemEl, document.getElementById("itemError")));
+  amountEl.addEventListener("input", () => clearFieldError(amountEl, document.getElementById("amountError")));
+  reasonEl.addEventListener("input", () => clearFieldError(reasonEl, document.getElementById("reasonError")));
+
   btn.addEventListener("click", async () => {
+    const { isValid, itemVal, amountNum, reasonVal } = validateForm();
+    if (!isValid) return;
+
     const payload = {
-      item: document.getElementById("item").value,
-      amount: Number(document.getElementById("amount").value),
-      reason: document.getElementById("reason").value,
+      item: itemVal,
+      amount: amountNum,
+      reason: reasonVal,
       requester: userProfile ? userProfile.displayName : "unknown",
       lineUserId: userProfile ? userProfile.userId : null,
       timestamp: new Date().toISOString(),
@@ -149,15 +257,44 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      resultEl.textContent = "ส่งสำเร็จ (สถานะ " + res.status + ")\n\n" + JSON.stringify(payload, null, 2);
-      btn.textContent = "ส่งคำขออีกครั้ง";
+
+      if (!res.ok) throw new Error("สถานะ " + res.status);
+
+      // แสดงหน้าจอสำเร็จ
+      summaryBox.innerHTML =
+        "<b>รายการ:</b> " + escapeHtml(payload.item) + "<br>" +
+        "<b>จำนวนเงิน:</b> " + payload.amount.toLocaleString() + " บาท<br>" +
+        "<b>เหตุผล:</b> " + escapeHtml(payload.reason);
+
+      formArea.classList.add("hidden");
+      successArea.classList.remove("hidden");
+
     } catch (err) {
-      resultEl.textContent = "ส่งไม่สำเร็จ: " + err.message;
-      btn.textContent = "ลองอีกครั้ง";
+      statusEl.className = "err";
+      statusEl.textContent = "ส่งคำขอไม่สำเร็จ กรุณาลองใหม่อีกครั้งค่ะ (" + err.message + ")";
+      btn.disabled = false;
+      btn.textContent = "ส่งคำขอ";
     }
-    btn.disabled = false;
   });
-<!-- deploy trigger -->
+
+  newRequestBtn.addEventListener("click", () => {
+    itemEl.value = "";
+    amountEl.value = "";
+    reasonEl.value = "";
+    btn.disabled = false;
+    btn.textContent = "ส่งคำขอ";
+    successArea.classList.add("hidden");
+    formArea.classList.remove("hidden");
+    statusEl.className = "ok";
+    statusEl.textContent = "เชื่อมต่อสำเร็จ ✓  สวัสดี " + (userProfile ? userProfile.displayName : "");
+  });
+
+  function escapeHtml(str) {
+    const div = document.createElement("div");
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
   initLiff();
 </script>
 </body>

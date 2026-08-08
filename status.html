@@ -55,6 +55,35 @@
     opacity: 0.9;
   }
 
+  .refresh-bar{
+    max-width: 480px;
+    margin: 0 auto;
+    padding: 10px 16px 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+  .refresh-btn{
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    color: var(--teal-dark);
+    font-size: 13px;
+    font-weight: 600;
+    padding: 7px 14px;
+    border-radius: 20px;
+  }
+  .refresh-btn:active{ background: var(--status-done-bg); }
+  .refresh-btn.spinning .refresh-icon{
+    animation: spin 0.7s linear infinite;
+  }
+  .refresh-icon{ display:inline-block; }
+  @keyframes spin{ to { transform: rotate(360deg); } }
+
   main{
     max-width: 480px;
     margin: 0 auto;
@@ -79,7 +108,6 @@
     margin: 0 auto 16px;
     animation: spin 0.8s linear infinite;
   }
-  @keyframes spin{ to { transform: rotate(360deg); } }
 
   .card{
     background: var(--card-bg);
@@ -131,20 +159,6 @@
     padding-top: 8px;
     border-top: 1px dashed var(--border);
   }
-
-  .load-more{
-    display: block;
-    width: 100%;
-    padding: 12px;
-    margin-top: 8px;
-    background: white;
-    border: 1px solid var(--teal);
-    color: var(--teal-dark);
-    font-size: 14px;
-    font-weight: 600;
-    border-radius: 10px;
-  }
-  .load-more:active{ background: var(--status-done-bg); }
 </style>
 </head>
 <body>
@@ -153,6 +167,13 @@
   <h1>📋 คำขอของฉัน</h1>
   <p>สถานะคำขอซื้อ / เบิกของทั้งหมด</p>
 </header>
+
+<div class="refresh-bar">
+  <span id="lastUpdated">—</span>
+  <button class="refresh-btn" id="refreshBtn">
+    <span class="refresh-icon">⟳</span> รีเฟรช
+  </button>
+</div>
 
 <main id="main">
   <div class="state-box" id="loading">
@@ -168,6 +189,7 @@ const N8N_ENDPOINT = "https://n8n-exsb.onrender.com/webhook/check-status";
 
 // ===== ตัวแปรสถานะ =====
 let allRequests = [];
+let lineUserId = null;
 
 const STATUS_MAP = {
   "รออนุมัติ":     { cls: "pending",  label: "รออนุมัติ" },
@@ -175,13 +197,20 @@ const STATUS_MAP = {
   "รอตรวจรับ":     { cls: "progress", label: "รอตรวจรับ" },
   "ตรวจรับแล้ว":   { cls: "progress", label: "ตรวจรับแล้ว" },
   "รอวางบิล":      { cls: "progress", label: "รอวางบิล" },
-  "เสร็จสมบูรณ์":  { cls: "done",     label: "เสร็จสมบูรณ์" }
+  "เสร็จสมบูรณ์":  { cls: "done",     label: "เสร็จสมบูรณ์" },
+  "ตีกลับ (คลัง)":  { cls: "rejected", label: "ตีกลับ (คลัง)" },
+  "ตีกลับ (บัญชี)": { cls: "rejected", label: "ตีกลับ (บัญชี)" }
 };
 
 function formatDate(iso){
   const d = new Date(iso);
   return d.toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric" }) +
          " " + d.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" });
+}
+
+function formatUpdatedTime(){
+  const d = new Date();
+  return "อัปเดตล่าสุด " + d.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" });
 }
 
 function renderCard(req){
@@ -215,6 +244,52 @@ function render(){
   main.innerHTML = allRequests.map(renderCard).join("");
 }
 
+async function loadData(isRefresh){
+  const refreshBtn = document.getElementById("refreshBtn");
+  const main = document.getElementById("main");
+
+  if (isRefresh){
+    refreshBtn.classList.add("spinning");
+    refreshBtn.disabled = true;
+  } else {
+    main.innerHTML = `
+      <div class="state-box">
+        <div class="spinner"></div>
+        กำลังโหลดข้อมูลค่ะ...
+      </div>`;
+  }
+
+  try{
+    const res = await fetch(N8N_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lineUserId })
+    });
+
+    const data = await res.json();
+    allRequests = data.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    document.getElementById("lastUpdated").textContent = formatUpdatedTime();
+    render();
+
+  } catch (err){
+    main.innerHTML = `
+      <div class="state-box">
+        <div class="icon">⚠️</div>
+        โหลดข้อมูลไม่สำเร็จค่ะ<br>
+        <span style="font-size:12px">${err.message || err}</span>
+      </div>`;
+  } finally {
+    if (isRefresh){
+      refreshBtn.classList.remove("spinning");
+      refreshBtn.disabled = false;
+    }
+  }
+}
+
+document.getElementById("refreshBtn").addEventListener("click", () => {
+  loadData(true);
+});
+
 async function init(){
   try{
     await liff.init({ liffId: LIFF_ID });
@@ -225,20 +300,9 @@ async function init(){
     }
 
     const profile = await liff.getProfile();
-    const lineUserId = profile.userId;
+    lineUserId = profile.userId;
 
-    const res = await fetch(N8N_ENDPOINT, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ lineUserId })
-    });
-
-    const data = await res.json();
-
-    // เรียงล่าสุดขึ้นก่อน
-    allRequests = data.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-
-    render();
+    await loadData(false);
 
   } catch (err){
     document.getElementById("main").innerHTML = `

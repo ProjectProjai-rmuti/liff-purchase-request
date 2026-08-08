@@ -37,7 +37,7 @@
   #status.ok{ background:#e4f5f1; color:var(--teal); font-weight:600; }
   #status.err{ background:var(--danger-bg); color:var(--danger); font-weight:600; white-space:pre-wrap; }
 
-  #formArea.hidden, #successArea.hidden{ display:none; }
+  #formArea.hidden, #reviewArea.hidden, #successArea.hidden{ display:none; }
 
   .field{ margin-bottom:16px; }
   label{ display:block; font-size:13px; font-weight:600; margin-bottom:6px; }
@@ -74,6 +74,50 @@
   }
   button:disabled{ background:#ccc; }
   button:active:not(:disabled){ background:var(--teal-dark); }
+
+  button.secondary{
+    background:#fff;
+    color:var(--navy);
+    border:1px solid #d9dee6;
+  }
+  button.secondary:active{ background:var(--card); }
+
+  .btn-row{ display:flex; gap:10px; margin-top:8px; }
+  .btn-row button{ margin-top:0; }
+
+  /* หน้าจอตรวจสอบก่อนส่ง */
+  #reviewArea h2{
+    font-size:16px;
+    margin:0 0 4px;
+  }
+  #reviewArea .review-sub{
+    color:var(--grey);
+    font-size:13px;
+    margin:0 0 20px;
+  }
+  .review-box{
+    background:var(--card);
+    border-radius:10px;
+    padding:18px;
+    margin-bottom:20px;
+  }
+  .review-row{
+    display:flex;
+    justify-content:space-between;
+    gap:12px;
+    padding:10px 0;
+    border-bottom:1px solid #e4e8ee;
+    font-size:14px;
+  }
+  .review-row:last-child{ border-bottom:none; }
+  .review-label{ color:var(--grey); flex-shrink:0; }
+  .review-value{ color:var(--navy); font-weight:600; text-align:right; word-break:break-word; }
+  .review-note{
+    font-size:12px;
+    color:var(--grey);
+    margin:-8px 0 20px;
+    line-height:1.6;
+  }
 
   /* หน้าจอส่งสำเร็จ */
   #successArea{
@@ -132,7 +176,33 @@
       <div class="field-error" id="reasonError">กรุณากรอกเหตุผลในการขอซื้อ</div>
     </div>
 
-    <button id="submitBtn">ส่งคำขอ</button>
+    <button id="reviewBtn">ตรวจสอบคำขอ</button>
+  </div>
+
+  <div id="reviewArea" class="hidden">
+    <h2>ตรวจสอบข้อมูลก่อนส่ง</h2>
+    <p class="review-sub">กรุณาตรวจสอบความถูกต้องอีกครั้ง โดยเฉพาะจำนวนเงิน</p>
+
+    <div class="review-box">
+      <div class="review-row">
+        <span class="review-label">รายการ</span>
+        <span class="review-value" id="reviewItem"></span>
+      </div>
+      <div class="review-row">
+        <span class="review-label">จำนวนเงิน</span>
+        <span class="review-value" id="reviewAmount"></span>
+      </div>
+      <div class="review-row">
+        <span class="review-label">เหตุผล</span>
+        <span class="review-value" id="reviewReason"></span>
+      </div>
+    </div>
+    <div class="review-note">เมื่อกด "ยืนยันส่งคำขอ" ระบบจะส่งคำขอเข้าสู่กระบวนการอนุมัติทันที และไม่สามารถแก้ไขข้อมูลได้อีก</div>
+
+    <div class="btn-row">
+      <button class="secondary" id="backBtn">แก้ไขข้อมูล</button>
+      <button id="confirmBtn">ยืนยันส่งคำขอ</button>
+    </div>
   </div>
 
   <div id="successArea" class="hidden">
@@ -146,13 +216,16 @@
 <script>
   // ===== ตั้งค่า =====
   const LIFF_ID = "2011004208-sT1I1zv2";
-  const WEBHOOK_URL = "https://n8n-exsb.onrender.com/webhook/pr-request"; // Production URL
+  const WEBHOOK_URL = "https://n8n-exsb.onrender.com/webhook/pr-request";
   // ==========================================
 
   const statusEl = document.getElementById("status");
   const formArea = document.getElementById("formArea");
+  const reviewArea = document.getElementById("reviewArea");
   const successArea = document.getElementById("successArea");
-  const btn = document.getElementById("submitBtn");
+  const reviewBtn = document.getElementById("reviewBtn");
+  const backBtn = document.getElementById("backBtn");
+  const confirmBtn = document.getElementById("confirmBtn");
   const newRequestBtn = document.getElementById("newRequestBtn");
   const summaryBox = document.getElementById("summaryBox");
 
@@ -161,6 +234,7 @@
   const reasonEl = document.getElementById("reason");
 
   let userProfile = null;
+  let pendingPayload = null;
 
   async function initLiff() {
     try {
@@ -230,16 +304,22 @@
     return { isValid, itemVal, amountNum, reasonVal };
   }
 
-  // ล้าง error ทันทีที่ผู้ใช้เริ่มพิมพ์แก้ไข
   itemEl.addEventListener("input", () => clearFieldError(itemEl, document.getElementById("itemError")));
   amountEl.addEventListener("input", () => clearFieldError(amountEl, document.getElementById("amountError")));
   reasonEl.addEventListener("input", () => clearFieldError(reasonEl, document.getElementById("reasonError")));
 
-  btn.addEventListener("click", async () => {
+  function escapeHtml(str) {
+    const div = document.createElement("div");
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  // ===== ขั้นที่ 1: กด "ตรวจสอบคำขอ" -> ไปหน้ารีวิว (ยังไม่ส่งจริง) =====
+  reviewBtn.addEventListener("click", () => {
     const { isValid, itemVal, amountNum, reasonVal } = validateForm();
     if (!isValid) return;
 
-    const payload = {
+    pendingPayload = {
       item: itemVal,
       amount: amountNum,
       reason: reasonVal,
@@ -248,32 +328,53 @@
       timestamp: new Date().toISOString(),
     };
 
-    btn.disabled = true;
-    btn.textContent = "กำลังส่ง...";
+    document.getElementById("reviewItem").textContent = pendingPayload.item;
+    document.getElementById("reviewAmount").textContent = pendingPayload.amount.toLocaleString() + " บาท";
+    document.getElementById("reviewReason").textContent = pendingPayload.reason;
+
+    formArea.classList.add("hidden");
+    reviewArea.classList.remove("hidden");
+    window.scrollTo(0, 0);
+  });
+
+  // ===== ปุ่ม "แก้ไขข้อมูล" -> กลับไปหน้าฟอร์ม (ค่าที่กรอกไว้ยังอยู่) =====
+  backBtn.addEventListener("click", () => {
+    reviewArea.classList.add("hidden");
+    formArea.classList.remove("hidden");
+  });
+
+  // ===== ขั้นที่ 2: กด "ยืนยันส่งคำขอ" -> ส่งจริง =====
+  confirmBtn.addEventListener("click", async () => {
+    if (!pendingPayload) return;
+
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = "กำลังส่ง...";
+    backBtn.disabled = true;
 
     try {
       const res = await fetch(WEBHOOK_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(pendingPayload),
       });
 
       if (!res.ok) throw new Error("สถานะ " + res.status);
 
-      // แสดงหน้าจอสำเร็จ
       summaryBox.innerHTML =
-        "<b>รายการ:</b> " + escapeHtml(payload.item) + "<br>" +
-        "<b>จำนวนเงิน:</b> " + payload.amount.toLocaleString() + " บาท<br>" +
-        "<b>เหตุผล:</b> " + escapeHtml(payload.reason);
+        "<b>รายการ:</b> " + escapeHtml(pendingPayload.item) + "<br>" +
+        "<b>จำนวนเงิน:</b> " + pendingPayload.amount.toLocaleString() + " บาท<br>" +
+        "<b>เหตุผล:</b> " + escapeHtml(pendingPayload.reason);
 
-      formArea.classList.add("hidden");
+      reviewArea.classList.add("hidden");
       successArea.classList.remove("hidden");
 
     } catch (err) {
       statusEl.className = "err";
       statusEl.textContent = "ส่งคำขอไม่สำเร็จ กรุณาลองใหม่อีกครั้งค่ะ (" + err.message + ")";
-      btn.disabled = false;
-      btn.textContent = "ส่งคำขอ";
+      confirmBtn.disabled = false;
+      confirmBtn.textContent = "ยืนยันส่งคำขอ";
+      backBtn.disabled = false;
+      window.scrollTo(0, 0);
     }
   });
 
@@ -281,19 +382,17 @@
     itemEl.value = "";
     amountEl.value = "";
     reasonEl.value = "";
-    btn.disabled = false;
-    btn.textContent = "ส่งคำขอ";
+    pendingPayload = null;
+    reviewBtn.disabled = false;
+    reviewBtn.textContent = "ตรวจสอบคำขอ";
+    confirmBtn.disabled = false;
+    confirmBtn.textContent = "ยืนยันส่งคำขอ";
+    backBtn.disabled = false;
     successArea.classList.add("hidden");
     formArea.classList.remove("hidden");
     statusEl.className = "ok";
     statusEl.textContent = "เชื่อมต่อสำเร็จ ✓  สวัสดี " + (userProfile ? userProfile.displayName : "");
   });
-
-  function escapeHtml(str) {
-    const div = document.createElement("div");
-    div.textContent = str;
-    return div.innerHTML;
-  }
 
   initLiff();
 </script>
